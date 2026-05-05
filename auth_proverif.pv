@@ -36,6 +36,8 @@ equation forall m: bitstring, n: bitstring; T(m, T(n, x)) = T(n, T(m, x)).
 event UserInit(bitstring, bitstring).
 event ServerAuth(bitstring, bitstring).
 event UserAuth(bitstring, bitstring).
+event TimestampCheck(bitstring).
+event AccountLocked(bitstring).
 
 (* ================================================================ *)
 (* -------- Security Queries Modeling the 14 Attacks -------------- *)
@@ -129,26 +131,48 @@ let processRC_Init() =
 let processUser() =
     in(sec_ch, (id: bitstring, pw: bitstring, r_i_sc: bitstring, A_i_sc: bitstring, B_i_sc: bitstring, y_RC_sc: bitstring));
     
+    (* --- Login Phase: Inputs ID_i, PW_i, SC --- *)
     let RPW_i_calc = h(xor(pw, r_i_sc)) in
+    
+    (* Verifies B_i ?= A_i XOR RPW_i XOR ID_i *)
+    (* If verification fails: attempts_i = attempts_i + 1 *)
+    (* If attempts_i >= max_attempts: Account locked for DeltaT_lock *)
     if B_i_sc = xor(xor(A_i_sc, RPW_i_calc), id) then
     
+    (* If valid -> generate r_u *)
     new r_u: bitstring;
     new T_1: bitstring; 
     
+    (* Computes C_i = T_r_u(x) *)
     let C_i = T(r_u, x) in
+    (* Computes D_i = T_r_u(T_omega(x)) *)
     let D_i = T(r_u, y_RC_sc) in   
+    (* Computes E_i = D_i XOR ID_i *)
     let E_i = xor(D_i, id) in
+    (* Computes F_i = h(A_i XOR C_i XOR T_1) *)
     let F_i = h(xor(xor(A_i_sc, C_i), T_1)) in
+    (* Computes G_i = D_i XOR SID_j *)
+    let G_i = xor(D_i, SID_j) in
     
     (* Output testing variable for Nonce Leakage *)
     out(c, xor(r_u, sec_ru));
     
-    out(c, (SID_j, C_i, E_i, F_i, T_1));
+    (* M_1 = {C_i, E_i, F_i, T_1, G_i} *)
+    out(c, (C_i, E_i, F_i, T_1, G_i));
     
-    in(c, (K_i: bitstring, M_i: bitstring, T_4: bitstring, h_SK: bitstring));
+    (* --- Receive M_3 = {K_i, M_i, T_4} from Server --- *)
+    in(c, (K_i: bitstring, M_i: bitstring, T_4: bitstring));
+    
+    (* Check |T_5 - T_4| <= DeltaT (modeled by accepting the message) *)
+    event TimestampCheck(T_4);
+    
+    (* Compute L_i = T_r_u(K_i) *)
     let L_i = T(r_u, K_i) in
     
+    (* Verify M_i ?= h(K_i XOR T_4 XOR ID_i XOR L_i XOR SID_j) *)
     if M_i = h(xor(xor(xor(xor(K_i, T_4), id), L_i), SID_j)) then
+    
+    (* Compute session key: SK_ij = h(ID_i XOR L_i XOR SID_j) *)
     let SK_ij = h(xor(xor(id, L_i), SID_j)) in
     
     event UserAuth(SID_j, SK_ij);
@@ -165,18 +189,31 @@ let processUser() =
 (*  RC Process (Active in Login Phase)                              *)
 (* ================================================================ *)
 let processRC_Auth() =
-    in(c, (req_SID_j: bitstring, C_i: bitstring, E_i: bitstring, F_i: bitstring, T_1: bitstring));
+    (* --- Receive M_1 = {C_i, E_i, F_i, T_1, G_i} --- *)
+    in(c, (C_i: bitstring, E_i: bitstring, F_i: bitstring, T_1: bitstring, G_i: bitstring));
     
+    (* Checks |T_2 - T_1| <= DeltaT *)
+    event TimestampCheck(T_1);
+    
+    (* Computes D_i = T_omega(C_i) *)
     let D_i = T(omega, C_i) in
+    (* Computes ID_i = E_i XOR D_i *)
     let ID_i_calc = xor(E_i, D_i) in
+    (* Computes A_i = h(ID_i XOR omega) *)
     let A_i_calc = h(xor(ID_i_calc, omega)) in
+    (* Recovers SID_j = G_i XOR D_i *)
+    let SID_j_calc = xor(G_i, D_i) in
     
+    (* Verify F_i ?= h(A_i XOR C_i XOR T_1) *)
     if F_i = h(xor(xor(A_i_calc, C_i), T_1)) then
     
     new T_2: bitstring;
-    let H_i = xor(h(xor(req_SID_j, omega)), D_i) in
+    (* Computes H_i = h(SID_j XOR omega) XOR D_i *)
+    let H_i = xor(h(xor(SID_j_calc, omega)), D_i) in
+    (* Computes J_i = h(H_i XOR T_2 XOR C_i XOR ID_i XOR D_i) *)
     let J_i = h(xor(xor(xor(xor(H_i, T_2), C_i), ID_i_calc), D_i)) in
     
+    (* M_2 = {C_i, E_i, H_i, J_i, T_2} *)
     out(c, (C_i, E_i, H_i, J_i, T_2)).
 
 
@@ -186,27 +223,40 @@ let processRC_Auth() =
 let processServer() =
     in(sec_ch, (sid: bitstring, S_key: bitstring));
     
+    (* --- Receive M_2 = {C_i, E_i, H_i, J_i, T_2} --- *)
     in(c, (C_i: bitstring, E_i: bitstring, H_i: bitstring, J_i: bitstring, T_2: bitstring));
     
+    (* Check |T_3 - T_2| <= DeltaT *)
+    event TimestampCheck(T_2);
+    
+    (* Computes D_i = H_i XOR h(SID_j XOR omega) *)
     let D_i = xor(H_i, S_key) in
+    (* Computes ID_i = E_i XOR D_i *)
     let ID_i_calc = xor(E_i, D_i) in
     
+    (* Verify J_i ?= h(H_i XOR T_2 XOR C_i XOR ID_i XOR D_i) *)
     if J_i = h(xor(xor(xor(xor(H_i, T_2), C_i), ID_i_calc), D_i)) then
     
+    (* If valid -> generate r_s *)
     new r_s: bitstring;
     new T_4: bitstring;
     
     (* Output testing variable for Nonce Leakage *)
     out(c, xor(r_s, sec_rs));
     
+    (* Computes K_i = T_r_s(x) *)
     let K_i = T(r_s, x) in
+    (* Computes L_i = T_r_s(C_i) *)
     let L_i = T(r_s, C_i) in
     
+    (* Computes session key: SK_ij = h(ID_i XOR L_i XOR SID_j) *)
     let SK_ij = h(xor(xor(ID_i_calc, L_i), sid)) in
+    (* Computes M_i = h(K_i XOR T_4 XOR ID_i XOR L_i XOR SID_j) *)
     let M_i = h(xor(xor(xor(xor(K_i, T_4), ID_i_calc), L_i), sid)) in
     
     event ServerAuth(sid, SK_ij);
-    out(c, (K_i, M_i, T_4, h(SK_ij))).
+    (* M_3 = {K_i, M_i, T_4} *)
+    out(c, (K_i, M_i, T_4)).
 
 
 (* ================================================================ *)
