@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Secure Login</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="atm-box">
+    <h1>Secure Authentication</h1>
+
+    <button id="insertCardBtn" onclick="insertCard()">Insert Smart Card</button>
+
+    <p id="statusText">Insert Smart Card</p>
+
+    <div id="authSection" class="hidden">
+        <input type="text" id="userId" placeholder="Enter User ID">
+        <input type="password" id="password" placeholder="Enter Password">
+        <button onclick="login()">Login</button>
+        <button onclick="goToChangePassword()">Change Password</button>
+    </div>
+
+    <p id="errorText" class="error"></p>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>

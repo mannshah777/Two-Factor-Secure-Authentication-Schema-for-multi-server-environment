@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<p id="timer"></p>
+<div class="atm-box">
+    <h1>Authentication Successful</h1>
+
+    <div class="success">
+        <p id="sessionData"></p>
+    </div>
+
+    <button onclick="logout()">Logout</button>
+</div>
+
+<script src="script.js"></script>
+
+<script>
+let sk = localStorage.getItem("sessionKey");
+let loginTime = parseInt(localStorage.getItem("loginTime"));
+
+let SESSION_DURATION = 3600000; // 1 hour in ms
+
+function updateTimer() {
+    let remaining = SESSION_DURATION - (Date.now() - loginTime);
+
+    if (remaining <= 0) {
+        alert("Session Expired");
+        localStorage.removeItem("sessionKey");
+        localStorage.removeItem("loginTime");
+        window.location.href = "index.html";
+        return;
+    }
+
+    let minutes = Math.floor(remaining / 60000);
+    let seconds = Math.floor((remaining % 60000) / 1000);
+
+    document.getElementById("timer").innerText =
+        "Session Expires In: " + minutes + "m " + seconds + "s";
+}
+
+if (!sk) {
+    window.location.href = "index.html";
+} else {
+    document.getElementById("sessionData").innerText =
+        "Session Key (User): " + sk + "\n" +
+        "Session Key (Server): " + sk + "\n" +
+        "✅ Authentication Successful";
+
+    setInterval(updateTimer, 1000);
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,71 @@
+body {
+    background: #000;
+    color: #fff;
+    font-family: Arial;
+    text-align: center;
+}
+
+.atm-box {
+    margin-top: 100px;
+    background: #111;
+    padding: 30px;
+    border-radius: 10px;
+    border: 1px solid #333;
+    display: inline-block;
+}
+
+button {
+    padding: 10px 20px;
+    margin: 10px;
+    background: #fff;
+    color: #000;
+    border: none;
+    cursor: pointer;
+}
+
+input {
+    display: block;
+    margin: 15px auto;
+    padding: 10px;
+    width: 220px;
+    background: #000;
+    color: #fff;
+    border: 1px solid #555;
+}
+
+.hidden {
+    display: none;
+}
+
+.success {
+    border: 1px solid #fff;
+    padding: 15px;
+    margin-top: 20px;
+    white-space: pre-line;
+}
+
+.error {
+    color: red;
+    margin-top: 10px;
+    white-space: pre-line;
+    font-weight: bold;
+}
+
+.pw-requirements {
+    text-align: left;
+    font-size: 13px;
+    color: #ff5252;
+    line-height: 1.8;
+    margin: 10px auto;
+    width: 280px;
+}
+
+.pw-requirements span {
+    display: inline-block;
+}
+
+button:disabled {
+    background: #555;
+    color: #999;
+    cursor: not-allowed;
+}
