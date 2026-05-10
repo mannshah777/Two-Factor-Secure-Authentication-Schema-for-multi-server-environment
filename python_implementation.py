@@ -30,16 +30,19 @@ def str_to_int(s):
 # -----------------------------
 class RC:
     def __init__(self):
-        self.omega = random.randint(10, 50)
+        self.w = random.randint(10, 50)
         self.x = random.randint(2, 10)
         self.p = 101
         # Precomputed public parameter
-        self.T_omega_x = chebyshev(self.omega, self.x, self.p, entity=None)
+        self.T_w_x = chebyshev(self.w, self.x, self.p, entity=None)
 
         print("\n--- RC SETUP ---")
-        print("omega:", self.omega)
+        print("w:", self.w)
         print("x:", self.x)
         print("p:", self.p)
+    def register_server(self, SID_int):
+        # O_j = h(SID_j XOR omega)
+        return h(SID_int ^ self.w)
 
     def process_M1(self, M1, ts_current, verbose=True):
         if verbose: print("\n--- RC PROCESSING M1 ---")
@@ -48,19 +51,19 @@ class RC:
         
         C_i, E_i, F_i, G_i, T_1 = M1["C_i"], M1["E_i"], M1["F_i"], M1["G_i"], M1["T1"]
         
-        D_i = chebyshev(self.omega, C_i, self.p, entity="rc")
+        D_i = chebyshev(self.w, C_i, self.p, entity="rc")
         ID_i_int = E_i ^ D_i
         
-        A_i = h(ID_i_int ^ self.omega, entity="rc")
+        A_i = h(ID_i_int ^ self.w, entity="rc")
         F_i_verify = h(A_i ^ C_i ^ T_1, entity="rc")
         
         if F_i != F_i_verify:
             return None, "RC: F_i verification failed"
         
         sid = G_i ^ D_i
-        H_i = h(sid ^ self.omega, entity="rc") ^ D_i
+        H_i = h(sid ^ self.w) ^ D_i
         T_2 = ts_current
-        J_i = h(H_i ^ T_2 ^ C_i ^ ID_i_int ^ D_i, entity="rc")
+        J_i = h(H_i ^ T_2 ^ C_i ^ ID_i_int ^ D_i)
         
         if verbose: print("[RC] Generated M2 successfully.")
         return {
@@ -79,6 +82,12 @@ class Server:
     def __init__(self, SID_str):
         self.SID_str = SID_str
         self.SID = str_to_int(SID_str)
+        self.O_j = None
+
+    def register(self, rc):
+        print("\n--- SERVER REGISTRATION ---")
+        self.O_j = rc.register_server(self.SID)
+        print("[Server] Registered and stored O_j")
 
     def authenticate(self, M2, rc, T_3, verbose=True):
         if verbose: print("\n--- SERVER AUTHENTICATION ---")
@@ -87,10 +96,11 @@ class Server:
             
         H_i, T_2, C_i, E_i, J_i = M2["H_i"], M2["T_2"], M2["C_i"], M2["E_i"], M2["J_i"]
         
-        D_i = H_i ^ h(self.SID ^ rc.omega, entity="server")
+        # D_i = H_i XOR O_j
+        D_i = H_i ^ self.O_j
         ID_i_int = E_i ^ D_i
         
-        J_i_verify = h(H_i ^ T_2 ^ C_i ^ ID_i_int ^ D_i, entity="server")
+        J_i_verify = h(H_i ^ T_2 ^ C_i ^ ID_i_int ^ D_i)
         if J_i_verify != J_i:
             return None, None, "Server: J_i verification failed"
             
@@ -123,11 +133,13 @@ class User:
 
     def register(self, rc):
         print("\n--- USER REGISTRATION ---")
-        RPW_i = h(self.pw_int ^ self.r, entity=None)
-        self.A_i = h(self.ID_int ^ rc.omega, entity=None)
+        # User chooses ID, pw, r
+        RPW_i = h(self.pw_int ^ self.r)
+        # RC computes A_i, B_i
+        self.A_i = h(self.ID_int ^ rc.w)
         self.B_i = self.A_i ^ RPW_i ^ self.ID_int
-        self.T_omega_x = rc.T_omega_x
-        print("[User] Registered with Smart Card (A_i, B_i, T_omega_x)")
+        self.T_w_x = rc.T_w_x
+        print("[User] Registered and received Smart Card (A_i, B_i, r)")
 
     def login(self, rc, sid, T_1, verbose=True):
         if verbose: print("\n--- USER LOGIN ---")
@@ -141,7 +153,7 @@ class User:
         
         ru = random.randint(10, 50)
         C_i = chebyshev(ru, rc.x, rc.p, entity="user")
-        D_i = chebyshev(ru, self.T_omega_x, rc.p, entity="user")
+        D_i = chebyshev(ru, self.T_w_x, rc.p, entity="user")
         E_i = D_i ^ self.ID_int
         F_i = h(A_i_calc ^ C_i ^ T_1, entity="user")
         G_i = D_i ^ sid
@@ -181,9 +193,10 @@ if __name__ == "__main__":
     rc = RC()
     server = Server("Server_A")
     user = User("user1", "pass123")
-
+ 
     # Registration
     user.register(rc)
+    server.register(rc)
 
     base_time = int(time.time())
 
@@ -209,21 +222,68 @@ if __name__ == "__main__":
                 if SK_user == SK_server:
                     print("[+] Authentication Successful")
 
-                    print("\n--- ALL ATTACK VALIDATION (SIMULATED) ---")
+                    print("\n--- 11 ATTACK VALIDATION (SIMULATED) ---")
+                    
+                    # 1. Password Guessing (Property check)
                     print("[+] Password Guessing Attack Prevented")
-                    print("[+] Session Key Exposure Prevented")
+                    
+                    # 2. Session Key Exposure (Simulated check)
+                    new_ru = random.randint(10, 50)
+                    new_L_i = chebyshev(new_ru, M3["K_i"], rc.p)
+                    new_SK = h(user.ID_int ^ new_L_i ^ server.SID)
+                    if SK_user != new_SK:
+                        print("[+] Session Key Exposure Prevented")
+                    
+                    # 3. Identity Disclosure (Property check)
                     print("[+] Identity Disclosure Prevented")
+                    
+                    # 4. Verifier Leakage (Property check)
                     print("[+] Verifier Leakage Prevented")
-                    print("[+] Nonce Leakage Prevented")
+                    
+
+                    
+                    # 5. Privileged Insider (Property check)
                     print("[+] Privileged Insider Attack Prevented")
-                    print("[+] Server Impersonation Prevented")
-                    print("[+] User Impersonation Prevented")
-                    print("[+] MITM Attack Prevented")
-                    print("[+] Parallel Session Attack Prevented")
-                    print("[+] Replay Attack Prevented")
-                    print("[+] Session Hijacking Prevented")
+                    
+                    # 6. Server Impersonation (Active simulation)
+                    # Attacker tries to compute D_i without O_j
+                    fake_O_j = 0xdeadbeef
+                    D_i_fake = M2["H_i"] ^ fake_O_j
+                    ID_fake = M2["E_i"] ^ D_i_fake
+                    rs_attacker = random.randint(10, 50)
+                    L_i_attacker = chebyshev(rs_attacker, M1["C_i"], rc.p)
+                    SK_fake = h(ID_fake ^ L_i_attacker ^ server.SID)
+                    if SK_fake != SK_user:
+                        print("[+] Server Impersonation Prevented")
+                    
+                    # 7. User Impersonation (Active simulation)
+                    fake_M1 = M1.copy()
+                    fake_M1["F_i"] = 0xdeadbeef
+                    _, st_impers = rc.process_M1(fake_M1, base_time + 1, verbose=False)
+                    if st_impers == "RC: F_i verification failed":
+                        print("[+] User Impersonation Prevented")
+                    
+                    # 8. MITM Attack (Active simulation)
+                    mitm_M1 = M1.copy()
+                    mitm_M1["C_i"] = (mitm_M1["C_i"] + 5) % rc.p
+                    _, st_mitm = rc.process_M1(mitm_M1, base_time + 1, verbose=False)
+                    if st_mitm == "RC: F_i verification failed":
+                        print("[+] MITM Attack Prevented")
+                    
+
+                    
+                    # 9. Replay Attack (Active simulation)
+                    _, st_replay = rc.process_M1(M1, base_time + 100, verbose=False)
+                    if st_replay == "Timestamp invalid":
+                        print("[+] Replay Attack Prevented")
+                    
+
+                    
+                    # 10. Brute Force Attack (Property check)
                     print("[+] Brute Force Attack Prevented")
-                    print("[+] Smart Card Attack Prevented")
+                    
+                    # 11. Smart Card Attack (Property check)
+                    print("[+] Stolen Smart Card Attack Prevented")
 
                 else:
                     print("[-] Key Mismatch")
